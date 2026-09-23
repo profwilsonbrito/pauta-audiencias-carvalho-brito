@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pauta de Audiências</title>
+<style>
+*{box-sizing:border-box;font-family:Segoe UI,Arial,sans-serif}
+body{margin:0;background:#f2f4f8;color:#1b2540}
+header{background:#0d1b3d;color:#d4af37;padding:16px;text-align:center;font-size:22px;font-weight:bold}
+.wrap{max-width:1000px;margin:auto;padding:12px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.card{background:#fff;border-radius:8px;padding:10px;text-align:center;border-top:4px solid #d4af37}
+.card b{font-size:24px;display:block}
+.box{background:#fff;border-radius:8px;padding:12px;margin-top:12px}
+.prox{background:#0d1b3d;color:#fff}
+.prox b{color:#d4af37}
+input,select,textarea{width:100%;padding:8px;margin:4px 0;border:1px solid #ccd;border-radius:6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
+button{background:#0d1b3d;color:#d4af37;border:0;padding:9px 14px;border-radius:6px;cursor:pointer;margin:3px}
+button.sec{background:#d4af37;color:#0d1b3d}
+.item{border-left:6px solid;padding:10px;margin:8px 0;background:#fff;border-radius:6px}
+.vermelho{border-color:#d32f2f}.amarelo{border-color:#f9a825}.verde{border-color:#2e7d32}.cinza{border-color:#999;opacity:.6}
+.conflito{background:#ffe5e5}
+small{color:#666}
+</style>
+</head>
+<body>
+<header>⚖️ Pauta de Audiências</header>
+<div class="wrap">
+
+<div class="cards">
+  <div class="card"><b id="cPend">0</b>Pendentes</div>
+  <div class="card"><b id="cHoje">0</b>Hoje</div>
+  <div class="card"><b id="c7">0</b>Até 7 dias</div>
+  <div class="card"><b id="c30">0</b>8–30 dias</div>
+  <div class="card"><b id="c30m">0</b>+30 dias</div>
+</div>
+
+<div class="box prox" id="prox">Nenhuma audiência pendente.</div>
+
+<div class="box">
+  <h3 id="tituloForm">Nova audiência</h3>
+  <div class="grid">
+    <input type="date" id="data">
+    <input type="time" id="hora">
+    <input id="processo" placeholder="Nº do processo">
+    <input id="promovente" placeholder="Promovente">
+    <input id="promovido" placeholder="Promovido">
+    <input id="serventia" placeholder="Serventia (ex.: GO, DF)">
+  </div>
+  <textarea id="obs" placeholder="Observações"></textarea>
+  <button onclick="salvar()">💾 Salvar</button>
+  <button class="sec" onclick="limpar()">Cancelar</button>
+</div>
+
+<div class="box">
+  <div class="grid">
+    <input id="busca" placeholder="🔍 Buscar..." oninput="render()">
+    <select id="filtro" onchange="render()"><option value="">Todas as serventias</option></select>
+  </div>
+  <button onclick="document.getElementById('csv').click()">📥 Importar CSV</button>
+  <button onclick="exportar()">📤 Exportar backup</button>
+  <button class="sec" onclick="apagarTudo()">🗑️ Apagar tudo</button>
+  <input type="file" id="csv" accept=".csv" hidden onchange="importar(event)">
+  <br><small>CSV: data;hora;processo;promovente;promovido;serventia;observacoes (data AAAA-MM-DD ou DD/MM/AAAA)</small>
+</div>
+
+<div id="lista"></div>
+</div>
+
+<script>
+let dados = JSON.parse(localStorage.getItem('pauta') || '[]');
+let editId = null;
+const $ = id => document.getElementById(id);
+const campos = ['data','hora','processo','promovente','promovido','serventia','obs'];
+
+function gravar(){ localStorage.setItem('pauta', JSON.stringify(dados)); render(); }
+
+function dias(d){
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  return Math.round((new Date(d+'T00:00') - hoje) / 86400000);
+}
+function fmt(d){ const [a,m,di] = d.split('-'); return `${di}/${m}/${a}`; }
+
+function salvar(){
+  const a = {}; campos.forEach(c => a[c] = $(c).value.trim());
+  if(!a.data || !a.hora || !a.processo) return alert('Preencha data, hora e processo.');
+  const conflito = dados.find(x => x.id !== editId && x.data === a.data && x.hora === a.hora && !x.feita);
+  if(conflito && !confirm(`⚠️ Já existe audiência nesse horário (proc. ${conflito.processo}). Salvar mesmo assim?`)) return;
+  if(editId){ Object.assign(dados.find(x => x.id === editId), a); }
+  else { a.id = Date.now() + Math.random(); a.feita = false; dados.push(a); }
+  limpar(); gravar();
+}
+
+function editar(id){
+  const a = dados.find(x => x.id === id);
+  campos.forEach(c => $(c).value = a[c] || '');
+  editId = id; $('tituloForm').innerText = 'Editar audiência';
+  scrollTo({top: 0, behavior: 'smooth'});
+}
+function limpar(){ campos.forEach(c => $(c).value = ''); editId = null; $('tituloForm').innerText = 'Nova audiência'; }
+function excluir(id){ if(confirm('Excluir esta audiência?')){ dados = dados.filter(x => x.id !== id); gravar(); } }
+function feita(id){ const a = dados.find(x => x.id === id); a.feita = !a.feita; gravar(); }
+function apagarTudo(){ if(confirm('Apagar TODAS as audiências?')){ dados = []; gravar(); } }
+
+function render(){
+  dados.sort((a,b) => (a.data + a.hora).localeCompare(b.data + b.hora));
+  const pend = dados.filter(a => !a.feita && dias(a.data) >= 0);
+  $('cPend').innerText = pend.length;
+  $('cHoje').innerText = pend.filter(a => dias(a.data) === 0).length;
+  $('c7').innerText = pend.filter(a => dias(a.data) <= 7).length;
+  $('c30').innerText = pend.filter(a => dias(a.data) > 7 && dias(a.data) <= 30).length;
+  $('c30m').innerText = pend.filter(a => dias(a.data) > 30).length;
+
+  const p = pend[0];
+  $('prox').innerHTML = p
+    ? `⏰ <b>Próxima:</b> ${fmt(p.data)} às ${p.hora} — Proc. ${p.processo} (${p.serventia}) — ${dias(p.data) === 0 ? 'HOJE' : 'em ' + dias(p.data) + ' dia(s)'}`
+    : 'Nenhuma audiência pendente.';
+
+  const serv = [...new Set(dados.map(a => a.serventia).filter(Boolean))];
+  const f = $('filtro'), atual = f.value;
+  f.innerHTML = '<option value="">Todas as serventias</option>' + serv.map(s => `<option>${s}</option>`).join('');
+  f.value = atual;
+
+  const q = $('busca').value.toLowerCase();
+  const chaves = {}; dados.filter(a => !a.feita).forEach(a => { const k = a.data + a.hora; chaves[k] = (chaves[k] || 0) + 1; });
+
+  $('lista').innerHTML = dados
+    .filter(a => (!f.value || a.serventia === f.value) && JSON.stringify(a).toLowerCase().includes(q))
+    .map(a => {
+      const d = dias(a.data);
+      const cor = a.feita || d < 0 ? 'cinza' : d <= 7 ? 'vermelho' : d <= 30 ? 'amarelo' : 'verde';
+      const conf = !a.feita && chaves[a.data + a.hora] > 1;
+      return `<div class="item ${cor} ${conf ? 'conflito' : ''}">
+        <b>${fmt(a.data)} às ${a.hora}</b> — ${a.serventia || ''} ${a.feita ? '✅ Realizada' : ''} ${conf ? '⚠️ CONFLITO DE HORÁRIO' : ''}<br>
+        Proc. <b>${a.processo}</b><br>
+        ${a.promovente} × ${a.promovido}<br>
+        <small>${a.obs || ''}</small><br>
+        <button onclick="feita(${a.id})">${a.feita ? '↩️ Reabrir' : '✅ Realizada'}</button>
+        <button onclick="editar(${a.id})">✏️ Editar</button>
+        <button class="sec" onclick="excluir(${a.id})">🗑️ Excluir</button>
+      </div>`;
+    }).join('') || '<div class="box">Nenhuma audiência encontrada.</div>';
+}
+
+function importar(e){
+  const r = new FileReader();
+  r.onload = () => {
+    let n = 0;
+    r.result.split(/\r?\n/).forEach((l, i) => {
+      const c = l.split(/[;,]/);
+      if(c.length < 3 || (i === 0 && /data/i.test(c[0]))) return;
+      let d = c[0].trim();
+      if(d.includes('/')){ const [di, m, a] = d.split('/'); d = `${a}-${m.padStart(2,'0')}-${di.padStart(2,'0')}`; }
+      dados.push({id: Date.now() + Math.random(), data: d, hora: (c[1] || '').trim(), processo: (c[2] || '').trim(),
+        promovente: (c[3] || '').trim(), promovido: (c[4] || '').trim(), serventia: (c[5] || '').trim(), obs: (c[6] || '').trim(), feita: false});
+      n++;
+    });
+    gravar(); alert(n + ' audiência(s) importada(s).');
+  };
+  r.readAsText(e.target.files[0]); e.target.value = '';
+}
+
+function exportar(){
+  const csv = 'data;hora;processo;promovente;promovido;serventia;observacoes\n' +
+    dados.map(a => [a.data, a.hora, a.processo, a.promovente, a.promovido, a.serventia, a.obs].join(';')).join('\n');
+  const b = document.createElement('a');
+  b.href = URL.createObjectURL(new Blob(['\ufeff' + csv], {type: 'text/csv'}));
+  b.download = 'pauta-backup.csv'; b.click();
+}
+
+render();
+</script>
+</body>
+</html>
